@@ -52,15 +52,18 @@
   .grid{display:grid;grid-template-columns:1fr 384px;gap:18px;margin-top:6px;align-items:start}
   @media(max-width:880px){.grid{grid-template-columns:1fr}}
   .mapcard{background:var(--card);border:1px solid var(--line);border-radius:16px;box-shadow:var(--shadow);overflow:hidden;position:relative;min-height:280px}
-  svg.map{display:block;width:100%;height:auto;touch-action:manipulation}
-  .land{fill:var(--land);stroke:var(--land-stroke);stroke-width:.6}
+  svg.map{display:block;width:100%;height:auto;touch-action:none;cursor:grab}
+  svg.map.dragging{cursor:grabbing}
+  .land{fill:var(--land);stroke:var(--land-stroke);stroke-width:.6;transition:fill .12s}
   .land.hl{fill:var(--land-hl)}
+  .land:hover{fill:#d8e2ec;cursor:pointer}
   .mpline{fill:none;stroke:var(--mp-stroke);stroke-width:1.1}
   .bub{cursor:pointer;transition:opacity .15s}
   .bub .ring{fill:#fff;stroke:#fff;stroke-width:1.2}
   .bub .lbl{font-size:11px;font-weight:700;fill:#1a2230;text-anchor:middle;dominant-baseline:central;paint-order:stroke;stroke:#fff;stroke-width:2.4px}
   .bub.wlbl .lbl{fill:#fff;stroke:rgba(0,0,0,.25);stroke-width:2px}
   .bub.dim{opacity:.32}
+  .bub.fdim{opacity:.12}
   .bub.sel .ring{stroke:#161b25;stroke-width:2}
   .loadmask{position:absolute;inset:0;display:grid;place-items:center;background:rgba(255,255,255,.7);font-size:13px;color:var(--muted);font-weight:500}
   .loadmask.hide{display:none}
@@ -70,6 +73,10 @@
   .legend .szrow{display:flex;align-items:flex-end;gap:10px;margin-top:8px;padding-top:8px;border-top:1px solid var(--line)}
   .legend circle{fill:none;stroke:#9aa3b1;stroke-width:1.2}
   .legend .szrow span{font-size:9.5px;color:var(--muted)}
+  .zoomctl{position:absolute;right:12px;top:12px;display:flex;flex-direction:column;gap:6px;z-index:2}
+  .zoomctl button{width:32px;height:32px;border:1px solid var(--line);background:rgba(255,255,255,.92);backdrop-filter:blur(3px);border-radius:9px;cursor:pointer;color:var(--muted);font-size:17px;line-height:1;display:grid;place-items:center;box-shadow:var(--shadow)}
+  .zoomctl button:hover{color:var(--ink);border-color:#cfd5de}
+  .zoomctl button:active{transform:translateY(1px)}
 
   .side{display:flex;flex-direction:column;gap:14px}
   .detail{background:var(--card);border:1px solid var(--line);border-radius:16px;box-shadow:var(--shadow);padding:14px 16px;min-height:96px}
@@ -101,6 +108,10 @@
 
   .tablecard{background:var(--card);border:1px solid var(--line);border-radius:16px;box-shadow:var(--shadow);overflow:hidden}
   .tablecard .hd{padding:11px 16px 9px;font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);font-weight:600;border-bottom:1px solid var(--line)}
+  .tsearch{padding:9px 12px;border-bottom:1px solid var(--line)}
+  .tsearch input{width:100%;border:1px solid var(--line);border-radius:8px;padding:7px 10px;font:inherit;font-size:12px;color:var(--ink);background:#fafbfc;outline:none}
+  .tsearch input::placeholder{color:#9aa3b1}
+  .tsearch input:focus{border-color:#cfd5de;background:#fff;box-shadow:0 0 0 3px rgba(51,152,255,.08)}
   .scroll{max-height:360px;overflow:auto}
   table{width:100%;border-collapse:collapse;font-size:11px}
   thead th{position:sticky;top:0;background:var(--card);text-align:right;padding:7px 6px;font-size:9px;letter-spacing:.02em;text-transform:uppercase;color:var(--muted);font-weight:600;cursor:pointer;white-space:nowrap;border-bottom:1px solid var(--line);z-index:1}
@@ -124,7 +135,7 @@
     <div class="ttl">
       <p class="eyebrow">1+1=11 · Kharif Deployment</p>
       <h1>Madhya Pradesh — AF Machine Deployment</h1>
-      <p>Live from Google Sheets + yesterday's weather. Switch the metric to resize the bubbles; hover or tap any territory for the full breakdown.</p>
+      <p>Live from Google Sheets + yesterday's weather. Switch the metric to resize the bubbles; hover or tap any territory for the full breakdown. Scroll to zoom, drag to pan the map.</p>
     </div>
     <div class="kpis">
       <div class="kpi"><div class="n" id="k-tot">–</div><div class="l">Deployed</div></div>
@@ -158,6 +169,11 @@
   <div class="grid">
     <div class="mapcard">
       <svg class="map" id="svg" xmlns="http://www.w3.org/2000/svg"></svg>
+      <div class="zoomctl">
+        <button id="zin" title="Zoom in" aria-label="Zoom in">+</button>
+        <button id="zout" title="Zoom out" aria-label="Zoom out">−</button>
+        <button id="zreset" title="Reset view" aria-label="Reset view">⟲</button>
+      </div>
       <div class="loadmask" id="loadmask">Loading deployment data…</div>
       <div class="legend" id="legend"></div>
     </div>
@@ -168,6 +184,7 @@
       </div>
       <div class="tablecard">
         <div class="hd">All territories — exact values</div>
+        <div class="tsearch"><input id="tsearch" type="search" placeholder="Search territory…" autocomplete="off" aria-label="Search territory"></div>
         <div class="scroll">
           <table id="tbl">
             <thead><tr>
@@ -218,10 +235,42 @@ function ring2path(r){ return r.map((pt,i)=>{const[x,y]=proj(pt[0],pt[1]);return
 function geom2path(g){ let d=""; if(g.type==="Polygon")g.coordinates.forEach(r=>d+=ring2path(r)); else if(g.type==="MultiPolygon")g.coordinates.forEach(p=>p.forEach(r=>d+=ring2path(r))); return d; }
 const svg=document.getElementById("svg"); svg.setAttribute("viewBox",`0 0 ${W} ${H}`);
 const gLand=document.createElementNS(SVGNS,"g");
-for(const f of BASE.features){ const p=document.createElementNS(SVGNS,"path"); p.setAttribute("d",geom2path(f.geometry)); p.setAttribute("class","land"); p.dataset.name=f.properties.name; gLand.appendChild(p); }
+for(const f of BASE.features){ const p=document.createElementNS(SVGNS,"path"); p.setAttribute("d",geom2path(f.geometry)); p.setAttribute("class","land"); p.dataset.name=f.properties.name; p.addEventListener("mouseenter",()=>districtHover(f.properties.name)); p.addEventListener("click",()=>{if(!moved)districtHover(f.properties.name);}); gLand.appendChild(p); }
 svg.appendChild(gLand);
 const outline=document.createElementNS(SVGNS,"path"); let allD=""; BASE.features.forEach(f=>allD+=geom2path(f.geometry)); outline.setAttribute("d",allD); outline.setAttribute("class","mpline"); svg.appendChild(outline);
 const gBub=document.createElementNS(SVGNS,"g"); svg.appendChild(gBub);
+
+/* ---- pan + zoom ---- */
+const canHover = window.matchMedia ? window.matchMedia("(hover:hover)").matches : true;
+const vbox={x:0,y:0,w:W,h:H}, MINW=W/6;
+let dragging=false,moved=false,_sx=0,_sy=0,_sv=null,_t1=null,_pd=0,_pv=null,_pmid=null;
+function applyView(){ svg.setAttribute("viewBox",`${vbox.x.toFixed(1)} ${vbox.y.toFixed(1)} ${vbox.w.toFixed(1)} ${vbox.h.toFixed(1)}`); }
+function clampPan(){ vbox.x=Math.max(0,Math.min(vbox.x,W-vbox.w)); vbox.y=Math.max(0,Math.min(vbox.y,H-vbox.h)); }
+function svgPt(cx,cy){ const r=svg.getBoundingClientRect(); return [vbox.x+(cx-r.left)/r.width*vbox.w, vbox.y+(cy-r.top)/r.height*vbox.h]; }
+function tdist(t){ return Math.hypot(t[0].clientX-t[1].clientX, t[0].clientY-t[1].clientY); }
+function zoomAt(px,py,factor){
+  let nw=vbox.w*factor, nh=vbox.h*factor;
+  if(nw>W){nw=W;nh=H;} if(nw<MINW){nw=MINW;nh=MINW*H/W;}
+  vbox.x=px-(px-vbox.x)*(nw/vbox.w); vbox.y=py-(py-vbox.y)*(nh/vbox.h);
+  vbox.w=nw; vbox.h=nh; clampPan(); applyView();
+}
+function hoverSelect(name){ if(dragging)return; select(name); }
+svg.addEventListener("wheel",e=>{ e.preventDefault(); const[px,py]=svgPt(e.clientX,e.clientY); zoomAt(px,py,e.deltaY<0?0.85:1/0.85); },{passive:false});
+svg.addEventListener("mousedown",e=>{ if(e.button!==0)return; dragging=true; moved=false; _sx=e.clientX;_sy=e.clientY;_sv={...vbox}; svg.classList.add("dragging"); });
+window.addEventListener("mousemove",e=>{ if(!dragging)return; const r=svg.getBoundingClientRect(); if(Math.abs(e.clientX-_sx)+Math.abs(e.clientY-_sy)>3)moved=true; vbox.x=_sv.x-(e.clientX-_sx)/r.width*_sv.w; vbox.y=_sv.y-(e.clientY-_sy)/r.height*_sv.h; clampPan(); applyView(); });
+window.addEventListener("mouseup",()=>{ dragging=false; svg.classList.remove("dragging"); });
+svg.addEventListener("touchstart",e=>{
+  if(e.touches.length===1){ const t=e.touches[0]; _t1={x:t.clientX,y:t.clientY}; _sv={...vbox}; moved=false; }
+  else if(e.touches.length===2){ _pd=tdist(e.touches); _pv={...vbox}; _pmid=svgPt((e.touches[0].clientX+e.touches[1].clientX)/2,(e.touches[0].clientY+e.touches[1].clientY)/2); }
+},{passive:false});
+svg.addEventListener("touchmove",e=>{
+  if(e.touches.length===1&&_t1){ e.preventDefault(); const t=e.touches[0],r=svg.getBoundingClientRect(); if(Math.abs(t.clientX-_t1.x)+Math.abs(t.clientY-_t1.y)>3)moved=true; vbox.x=_sv.x-(t.clientX-_t1.x)/r.width*_sv.w; vbox.y=_sv.y-(t.clientY-_t1.y)/r.height*_sv.h; clampPan(); applyView(); }
+  else if(e.touches.length===2&&_pv){ e.preventDefault(); moved=true; const f=_pd/tdist(e.touches); let nw=_pv.w*f,nh=_pv.h*f; if(nw>W){nw=W;nh=H;} if(nw<MINW){nw=MINW;nh=MINW*H/W;} vbox.x=_pmid[0]-(_pmid[0]-_pv.x)*(nw/_pv.w); vbox.y=_pmid[1]-(_pmid[1]-_pv.y)*(nh/_pv.h); vbox.w=nw;vbox.h=nh; clampPan(); applyView(); }
+},{passive:false});
+svg.addEventListener("touchend",e=>{ if(e.touches.length===0){_t1=null;_pv=null;} });
+document.getElementById("zin").addEventListener("click",()=>zoomAt(vbox.x+vbox.w/2,vbox.y+vbox.h/2,0.7));
+document.getElementById("zout").addEventListener("click",()=>zoomAt(vbox.x+vbox.w/2,vbox.y+vbox.h/2,1/0.7));
+document.getElementById("zreset").addEventListener("click",()=>{ vbox.x=0;vbox.y=0;vbox.w=W;vbox.h=H; applyView(); });
 
 /* state */
 let PTS=[], byName={}, maxTotal=1,maxUpl=1,maxSwal=1,maxMach=1,maxAcre=1;
@@ -278,10 +327,10 @@ function draw(){
       if(full){el.setAttribute("cx",cx);el.setAttribute("cy",cy);el.setAttribute("r",sp.r);} else el.setAttribute("d",wedge(cx,cy,sp.r,w[0],w[1]));
       el.setAttribute("fill",w[2]);el.setAttribute("stroke",w[3]);el.setAttribute("stroke-width",".8");g.appendChild(el); }
     if(showLabels&&sp.r>=11&&sp.label!==""&&sp.label!=null){ const t=document.createElementNS(SVGNS,"text"); t.setAttribute("x",cx);t.setAttribute("y",cy);t.setAttribute("class","lbl");t.textContent=sp.label;g.appendChild(t); }
-    g.addEventListener("mouseenter",()=>select(p.name)); g.addEventListener("mousemove",()=>select(p.name)); g.addEventListener("click",()=>select(p.name));
+    g.addEventListener("mouseenter",()=>hoverSelect(p.name)); g.addEventListener("mousemove",()=>hoverSelect(p.name)); g.addEventListener("click",()=>{if(!moved)select(p.name);});
     bubEls[p.name]=g; gBub.appendChild(g);
   }
-  applySel(); buildLegend();
+  applySel(); buildLegend(); applyFilter();
 }
 
 const detail=document.getElementById("detail");
@@ -316,18 +365,23 @@ function applySel(){
   Object.entries(bubEls).forEach(([n,g])=>{ g.classList.toggle("sel",n===selected); g.classList.toggle("dim",selected!=null&&n!==selected); });
   document.querySelectorAll("#tbody tr").forEach(tr=>tr.classList.toggle("sel",tr.dataset.name===selected));
 }
-svg.addEventListener("mouseleave",()=>{selected=null;showDetail(null);applySel();});
+function districtHover(name){ if(dragging)return; if(byName[name]){select(name);} else {selected=null;applySel();showNoData(name);} }
+function showNoData(name){ detail.innerHTML=`<div class="name"><span>${name}</span></div><div class="hint">No deployment recorded for this district yet.</div>`; }
+svg.addEventListener("mouseleave",()=>{ if(!canHover)return; selected=null;showDetail(null);applySel(); });
 
-let sortK="total",sortDir=-1;
+let sortK="total",sortDir=-1,filterText="";
+function applyFilter(){ Object.entries(bubEls).forEach(([n,g])=>g.classList.toggle("fdim",!!filterText&&!n.toLowerCase().includes(filterText))); }
 const tbody=document.getElementById("tbody");
 function renderTable(){
-  const rows=[...PTS].sort((a,b)=>{ let r=sortK==="name"?a.name.localeCompare(b.name):a[sortK]-b[sortK]; return r*sortDir; });
+  const rows=[...PTS].filter(p=>!filterText||p.name.toLowerCase().includes(filterText)).sort((a,b)=>{ let r=sortK==="name"?a.name.localeCompare(b.name):a[sortK]-b[sortK]; return r*sortDir; });
+  if(!rows.length){ tbody.innerHTML=`<tr><td class="tname" colspan="6" style="padding:16px 14px;color:var(--muted);font-weight:400;text-align:left">No territories match “${filterText}”.</td></tr>`; applyFilter(); return; }
   tbody.innerHTML=rows.map(p=>`<tr data-name="${p.name}"><td class="tname">${p.name}</td><td class="swal ${p.swal===0?'zero':''}">${p.swal||'–'}</td><td class="upl ${p.upl===0?'zero':''}">${p.upl||'–'}</td><td class="${p.machines===0?'zero':''}">${p.machines||'–'}</td><td class="${p.acres===0?'zero':''}">${p.acres?p.acres.toLocaleString():'–'}</td><td class="tot">${p.total}</td></tr>`).join("");
-  tbody.querySelectorAll("tr").forEach(tr=>{ tr.addEventListener("mouseenter",()=>select(tr.dataset.name)); tr.addEventListener("click",()=>select(tr.dataset.name)); });
+  tbody.querySelectorAll("tr").forEach(tr=>{ tr.addEventListener("mouseenter",()=>hoverSelect(tr.dataset.name)); tr.addEventListener("click",()=>select(tr.dataset.name)); });
   document.querySelectorAll("thead th").forEach(th=>{ th.classList.toggle("act",th.dataset.k===sortK); const ar=th.querySelector(".ar"); if(ar)ar.textContent=th.dataset.k===sortK?(sortDir<0?"▼":"▲"):""; });
-  applySel();
+  applySel(); applyFilter();
 }
 document.querySelectorAll("thead th").forEach(th=>th.addEventListener("click",()=>{ const k=th.dataset.k; if(sortK===k)sortDir*=-1; else{sortK=k;sortDir=k==="name"?1:-1;} renderTable(); }));
+document.getElementById("tsearch").addEventListener("input",e=>{ filterText=e.target.value.trim().toLowerCase(); renderTable(); });
 
 function updateKpis(){
   const tU=PTS.reduce((s,p)=>s+p.upl,0),tS=PTS.reduce((s,p)=>s+p.swal,0),tM=PTS.reduce((s,p)=>s+p.machines,0),tA=PTS.reduce((s,p)=>s+p.acres,0);
