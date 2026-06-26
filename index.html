@@ -56,7 +56,13 @@
   svg.map.dragging{cursor:grabbing}
   .land{fill:var(--land);stroke:var(--land-stroke);stroke-width:.6;transition:fill .12s}
   .land.hl{fill:var(--land-hl)}
-  .land:hover{fill:#d8e2ec;cursor:pointer}
+  .land.rain{fill:var(--rain)}
+  .land.fdim{opacity:.35}
+  .land.lsel{stroke:#161b25;stroke-width:1.8}
+  .land:hover{cursor:pointer}
+  .land:not(.rain):hover{fill:#d8e2ec}
+  .land.rain:hover{stroke:#161b25;stroke-width:1.4}
+  text.rlbl{font-size:10.5px;font-weight:700;fill:#10243a;text-anchor:middle;dominant-baseline:central;paint-order:stroke;stroke:#fff;stroke-width:2.6px;pointer-events:none}
   .mpline{fill:none;stroke:var(--mp-stroke);stroke-width:1.1}
   .bub{cursor:pointer;transition:opacity .15s}
   .bub .ring{fill:#fff;stroke:#fff;stroke-width:1.2}
@@ -152,6 +158,7 @@
       <button data-m="machines"><span class="dot" style="background:var(--act)"></span>Machines ran</button>
       <button data-m="acres"><span class="dot" style="background:var(--acre)"></span>Acres</button>
       <button data-m="weather"><span class="dot" style="background:var(--good)"></span>Weather</button>
+      <button data-m="rainfall"><span class="dot" style="background:#2f7ab8"></span>Rainfall</button>
     </div>
     <div class="seg sub" id="subSeg">
       <button data-v="both" class="on"><span class="dot" style="background:linear-gradient(90deg,var(--upl) 50%,var(--swal) 50%)"></span>Both</button>
@@ -315,8 +322,27 @@ function specFor(p){
   const r=radius(p.total,maxTotal); const sp=p.wx?p.wx.spray:{col:"#c2c8d2"};
   return {r,parts:p.total>0?[[0,0,sp.col,sp.col,true]]:[],label:p.wx?Math.round(p.wx.tmax)+"°":"",white:true};
 }
+const RAIN_BUCKETS=[
+  {max:0.1,col:"#eef2f5",lbl:"0"},
+  {max:1,  col:"#d4e6f1",lbl:"<1"},
+  {max:5,  col:"#9ecae1",lbl:"1–5"},
+  {max:15, col:"#5a9bd4",lbl:"5–15"},
+  {max:30, col:"#2f7ab8",lbl:"15–30"},
+  {max:1e9,col:"#1c4e80",lbl:"30+"}
+];
+function rainColor(mm){ for(const b of RAIN_BUCKETS) if(mm<b.max) return b.col; return RAIN_BUCKETS[RAIN_BUCKETS.length-1].col; }
+function clearRainfall(){ gLand.querySelectorAll("path.rain").forEach(pa=>{ pa.classList.remove("rain"); pa.style.removeProperty("--rain"); }); }
+function drawRainfall(){
+  for(const pa of gLand.querySelectorAll("path")){ const p=byName[pa.dataset.name];
+    if(p&&p.wx){ pa.classList.add("rain"); pa.style.setProperty("--rain",rainColor(p.wx.rain)); }
+    else { pa.classList.remove("rain"); pa.style.removeProperty("--rain"); } }
+  if(showLabels){ for(const p of PTS){ if(!p.wx)continue; const[cx,cy]=proj(p.lon,p.lat);
+    const t=document.createElementNS(SVGNS,"text"); t.setAttribute("x",cx);t.setAttribute("y",cy);t.setAttribute("class","rlbl"); t.textContent=p.wx.rain>0?p.wx.rain.toFixed(p.wx.rain<10?1:0):"0"; gBub.appendChild(t); } }
+}
 function draw(){
   gBub.innerHTML="";
+  if(metric==="rainfall"){ drawRainfall(); applySel(); buildLegend(); applyFilter(); return; }
+  clearRainfall();
   const order=[...PTS].sort((a,b)=>b.total-a.total);
   for(const p of order){
     const sp=specFor(p); const[cx,cy]=proj(p.lon,p.lat);
@@ -363,6 +389,7 @@ function showDetail(name){
 function select(name){ selected=name; showDetail(name); applySel(); }
 function applySel(){
   Object.entries(bubEls).forEach(([n,g])=>{ g.classList.toggle("sel",n===selected); g.classList.toggle("dim",selected!=null&&n!==selected); });
+  gLand.querySelectorAll("path").forEach(pa=>pa.classList.toggle("lsel",pa.dataset.name===selected));
   document.querySelectorAll("#tbody tr").forEach(tr=>tr.classList.toggle("sel",tr.dataset.name===selected));
 }
 function districtHover(name){ if(dragging)return; if(byName[name]){select(name);} else {selected=null;applySel();showNoData(name);} }
@@ -370,7 +397,8 @@ function showNoData(name){ detail.innerHTML=`<div class="name"><span>${name}</sp
 svg.addEventListener("mouseleave",()=>{ if(!canHover)return; selected=null;showDetail(null);applySel(); });
 
 let sortK="total",sortDir=-1,filterText="";
-function applyFilter(){ Object.entries(bubEls).forEach(([n,g])=>g.classList.toggle("fdim",!!filterText&&!n.toLowerCase().includes(filterText))); }
+function applyFilter(){ Object.entries(bubEls).forEach(([n,g])=>g.classList.toggle("fdim",!!filterText&&!n.toLowerCase().includes(filterText)));
+  const rain=metric==="rainfall"; gLand.querySelectorAll("path").forEach(pa=>{ const n=(pa.dataset.name||"").toLowerCase(); pa.classList.toggle("fdim", rain&&!!filterText&&!n.includes(filterText)); }); }
 const tbody=document.getElementById("tbody");
 function renderTable(){
   const rows=[...PTS].filter(p=>!filterText||p.name.toLowerCase().includes(filterText)).sort((a,b)=>{ let r=sortK==="name"?a.name.localeCompare(b.name):a[sortK]-b[sortK]; return r*sortDir; });
@@ -395,6 +423,7 @@ function buildLegend(){
   if(metric==="deploy"){ html=`<div class="row"><span class="sw" style="background:var(--upl)"></span>UPL stream</div><div class="row"><span class="sw" style="background:var(--swal)"></span>SWAL stream</div>`; }
   else if(metric==="machines"){ html=`<div class="row"><span class="sw" style="background:var(--act)"></span>Machines ran yesterday</div>`; }
   else if(metric==="acres"){ html=`<div class="row"><span class="sw" style="background:var(--acre)"></span>Acres sprayed yesterday</div>`; }
+  else if(metric==="rainfall"){ el.innerHTML=`<div class="row" style="font-weight:600;color:var(--ink);margin-bottom:5px">Rainfall yesterday (mm)</div>`+RAIN_BUCKETS.map(b=>`<div class="row"><span class="sw" style="background:${b.col};border:1px solid rgba(0,0,0,.1)"></span>${b.lbl}</div>`).join(""); return; }
   else { html=`<div class="row"><span class="sw" style="background:var(--good)"></span>Good spray day</div><div class="row"><span class="sw" style="background:var(--marg)"></span>Marginal</div><div class="row"><span class="sw" style="background:var(--hold)"></span>Hold (wet / windy)</div>`; }
   // size legend keyed to the active metric
   const maxV = metric==="machines"?maxMach : metric==="acres"?maxAcre : maxTotal;
@@ -464,7 +493,7 @@ async function loadWeather(){
       p.wx={code:d.weather_code[0],tmax:d.temperature_2m_max[0],tmin:d.temperature_2m_min[0],rain:d.precipitation_sum[0],wind:d.wind_speed_10m_max[0]};
       p.wx.spray=sprayWindow(p.wx.rain,p.wx.wind); });
     weatherReady=true; byName=Object.fromEntries(PTS.map(p=>[p.name,p]));
-    if(metric==="weather")draw(); if(selected)showDetail(selected);
+    if(metric==="weather"||metric==="rainfall")draw(); if(selected)showDetail(selected);
   }catch(e){ /* weather optional; map still works */ }
 }
 async function loadData(){
