@@ -63,6 +63,9 @@
   .land:not(.rain):hover{fill:#d8e2ec}
   .land.rain:hover{stroke:#161b25;stroke-width:1.4}
   text.rlbl{font-size:10.5px;font-weight:700;fill:#10243a;text-anchor:middle;dominant-baseline:central;paint-order:stroke;stroke:#fff;stroke-width:2.6px;pointer-events:none}
+  text.rinfo{text-anchor:middle;dominant-baseline:central;paint-order:stroke;stroke:#fff;stroke-width:2.4px;pointer-events:none}
+  text.rinfo .nm{font-size:10px;font-weight:700;fill:#10243a}
+  text.rinfo .st{font-size:8.5px;font-weight:600;fill:#1f3a52}
   .mpline{fill:none;stroke:var(--mp-stroke);stroke-width:1.1}
   .bub{cursor:pointer;transition:opacity .15s}
   .bub .ring{fill:#fff;stroke:#fff;stroke-width:1.2}
@@ -337,7 +340,11 @@ function drawRainfall(){
     if(p&&p.wx){ pa.classList.add("rain"); pa.style.setProperty("--rain",rainColor(p.wx.rain)); }
     else { pa.classList.remove("rain"); pa.style.removeProperty("--rain"); } }
   if(showLabels){ for(const p of PTS){ if(!p.wx)continue; const[cx,cy]=proj(p.lon,p.lat);
-    const t=document.createElementNS(SVGNS,"text"); t.setAttribute("x",cx);t.setAttribute("y",cy);t.setAttribute("class","rlbl"); t.textContent=p.wx.rain>0?p.wx.rain.toFixed(p.wx.rain<10?1:0):"0"; gBub.appendChild(t); } }
+    const mm=p.wx.rain>0?p.wx.rain.toFixed(p.wx.rain<10?1:0):"0";
+    const t=document.createElementNS(SVGNS,"text"); t.setAttribute("x",cx);t.setAttribute("y",cy);t.setAttribute("class","rinfo");
+    const t1=document.createElementNS(SVGNS,"tspan"); t1.setAttribute("x",cx); t1.setAttribute("dy","-0.35em"); t1.setAttribute("class","nm"); t1.textContent=p.name;
+    const t2=document.createElementNS(SVGNS,"tspan"); t2.setAttribute("x",cx); t2.setAttribute("dy","1.2em"); t2.setAttribute("class","st"); t2.textContent=`${p.machines||0}/${p.total} ran · ${mm}mm`;
+    t.appendChild(t1); t.appendChild(t2); gBub.appendChild(t); } }
 }
 function draw(){
   gBub.innerHTML="";
